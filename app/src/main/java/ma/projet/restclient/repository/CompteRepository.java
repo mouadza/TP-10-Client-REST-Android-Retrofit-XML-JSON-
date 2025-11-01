@@ -12,61 +12,105 @@ import retrofit2.Callback;
 import retrofit2.Response;
 
 public class CompteRepository {
-    private CompteService compteService;
-    private String format;
+    private final CompteService compteService;
+    private final String format;
 
-    // Constructeur pour initialiser le service avec le type de convertisseur
     public CompteRepository(String converterType) {
-        compteService = RetrofitClient.getClient(converterType).create(CompteService.class);
+        this.compteService = RetrofitClient.getClient(converterType).create(CompteService.class);
         this.format = converterType;
     }
 
-    // Méthode pour récupérer tous les comptes
     public void getAllCompte(Callback<List<Compte>> callback) {
         if ("JSON".equals(format)) {
-            Call<List<Compte>> call = compteService.getAllCompteJson();
-            call.enqueue(callback);
+            compteService.getAllCompteJson().enqueue(new Callback<List<Compte>>() {
+                @Override
+                public void onResponse(Call<List<Compte>> call, Response<List<Compte>> response) {
+                    if (response.isSuccessful() && response.body() != null) {
+                        List<Compte> list = response.body();
+                        for (Compte c : list) c.setDateCreation(normalizeDateToYMD(c.getDateCreation()));
+                        callback.onResponse(call, Response.success(list));
+                    } else {
+                        callback.onResponse(call, Response.success(java.util.Collections.emptyList()));
+                    }
+                }
+                @Override public void onFailure(Call<List<Compte>> call, Throwable t) {
+                    callback.onFailure(call, t);
+                }
+            });
         } else {
-            Call<CompteList> call = compteService.getAllCompteXml();
-            call.enqueue(new Callback<CompteList>() {
+            compteService.getAllCompteXml().enqueue(new Callback<CompteList>() {
                 @Override
                 public void onResponse(Call<CompteList> call, Response<CompteList> response) {
                     if (response.isSuccessful() && response.body() != null) {
-                        // Convertir CompteList en List<Compte>
                         List<Compte> comptes = response.body().getComptes();
+                        for (Compte c : comptes) c.setDateCreation(normalizeDateToYMD(c.getDateCreation()));
                         callback.onResponse(null, Response.success(comptes));
+                    } else {
+                        callback.onResponse(null, Response.success(java.util.Collections.emptyList()));
                     }
                 }
-
-                @Override
-                public void onFailure(Call<CompteList> call, Throwable t) {
-                    // Gérer les erreurs ici si nécessaire
+                @Override public void onFailure(Call<CompteList> call, Throwable t) {
+                    callback.onFailure(null, t);
                 }
             });
         }
     }
 
-    // Méthode pour récupérer un compte par son ID
+
+    /** Accepts ISO-8601 (with/without millis/zone), epoch millis, or yyyy-MM-dd; returns yyyy-MM-dd. */
+    private String normalizeDateToYMD(String raw) {
+        if (raw == null || raw.isEmpty()) return null;
+        try {
+            // epoch millis?
+            if (raw.matches("^\\d{10,}$")) {
+                long ms = Long.parseLong(raw);
+                java.util.Date d = new java.util.Date(ms);
+                return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(d);
+            }
+
+            // Already yyyy-MM-dd?
+            if (raw.matches("^\\d{4}-\\d{2}-\\d{2}$")) return raw;
+
+            // Try common ISO-8601 patterns (API-24 safe)
+            String[] patterns = {
+                    "yyyy-MM-dd'T'HH:mm:ss.SSSXXX",
+                    "yyyy-MM-dd'T'HH:mm:ssXXX",
+                    "yyyy-MM-dd'T'HH:mm:ss.SSS'Z'",
+                    "yyyy-MM-dd'T'HH:mm:ss'Z'",
+                    "yyyy-MM-dd'T'HH:mmXXX",
+                    "yyyy-MM-dd'T'HH:mm'Z'"
+            };
+            for (String p : patterns) {
+                try {
+                    java.text.SimpleDateFormat in = new java.text.SimpleDateFormat(p, java.util.Locale.US);
+                    in.setLenient(true);
+                    java.util.Date d = in.parse(raw);
+                    if (d != null) {
+                        return new java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(d);
+                    }
+                } catch (Exception ignore) { }
+            }
+        } catch (Exception ignoreOuter) { }
+        // Fallback: return as-is (adapter must handle null/unknown)
+        return raw;
+    }
+
+
+
     public void getCompteById(Long id, Callback<Compte> callback) {
-        Call<Compte> call = compteService.getCompteById(id);
-        call.enqueue(callback);
+        compteService.getCompteById(id).enqueue(callback);
     }
 
-    // Méthode pour ajouter un compte
-    public void addCompte(Compte compte, Callback<Compte> callback) {
-        Call<Compte> call = compteService.addCompte(compte);
-        call.enqueue(callback);
+    // ✅ Void bodies for write ops
+    public void addCompte(Compte compte, Callback<Void> callback) {
+        compteService.addCompte(compte).enqueue(callback);
     }
 
-    // Méthode pour mettre à jour un compte
-    public void updateCompte(Long id, Compte compte, Callback<Compte> callback) {
-        Call<Compte> call = compteService.updateCompte(id, compte);
-        call.enqueue(callback);
+    public void updateCompte(Long id, Compte compte, Callback<Void> callback) {
+        compteService.updateCompte(id, compte).enqueue(callback);
     }
 
-    // Méthode pour supprimer un compte
     public void deleteCompte(Long id, Callback<Void> callback) {
-        Call<Void> call = compteService.deleteCompte(id);
-        call.enqueue(callback);
+        compteService.deleteCompte(id).enqueue(callback);
     }
 }
